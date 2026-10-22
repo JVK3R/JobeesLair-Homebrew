@@ -1,0 +1,14 @@
+{
+  "name": "jobeeslair-homebrew",
+  "private": true,
+  "type": "module",
+  "description": "The Homebrew section of Jobee'sLair: its index, the builder that refreshes it, and the home of Jobee'sLair Homebrew.",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "build": "node tools/build-index.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

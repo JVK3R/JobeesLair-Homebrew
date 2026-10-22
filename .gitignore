@@ -1,0 +1,3 @@
+# The builder's cache lives in the Actions cache, not here
+cache.json
+node_modules/

@@ -1,0 +1,53 @@
+name: homebrew index
+
+# Rebuilds index.json, the Homebrew section's catalog, from each listed project's own GitHub repository and
+# newest release (tools/build-index.mjs), every six hours and whenever the list or the builder changes, and
+# commits it when what it lists changed. The repositories come from nexgen999's PS5 Repository List (read live;
+# it updates every hour) and sources.json. Jobee'sLair reads the result from raw.githubusercontent.com, so a new
+# release of a listed app, or a new app on the list, reaches consoles the same day. The builder's cache (README
+# and tree reads, archive listings, image checks) is kept in the Actions cache, not in the repository.
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - sources.json
+      - tools/**
+
+permissions:
+  contents: write
+
+concurrency:
+  group: homebrew-index
+  cancel-in-progress: false
+
+jobs:
+  index:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Archive lister (for .7z and .tar.gz releases)
+        run: sudo apt-get install -y --no-install-recommends libarchive-tools
+      - uses: actions/cache@v4
+        with:
+          path: cache.json
+          key: homebrew-cache-${{ github.run_id }}
+          restore-keys: homebrew-cache-
+      - name: Build the index
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tools/build-index.mjs
+      - name: Commit it when it changed
+        run: |
+          if git diff --quiet -- index.json; then echo "Nothing new."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.json
+          git commit -m "index: refresh [skip ci]"
+          git push
