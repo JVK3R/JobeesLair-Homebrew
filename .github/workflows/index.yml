@@ -50,4 +50,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.json
           git commit -m "index: refresh [skip ci]"
+          # Another run may have pushed meanwhile (a push to the list and the schedule can overlap): rebase
+          # onto it, and when both refreshed the index, let the earlier one stand; the next run catches up.
+          git pull --rebase origin main || { git rebase --abort; echo "Another run refreshed it first."; exit 0; }
           git push
