@@ -8,7 +8,9 @@
 //   node tools/homebrew/build-index.mjs            (GITHUB_TOKEN or GH_TOKEN raises GitHub's rate limit)
 //
 // For each repository:
-//   - the release: the newest one that is not a draft (many PS5 projects only publish pre-releases);
+//   - the release: the newest one that is not a draft (many PS5 projects only publish pre-releases), or the
+//     one before it when every console file in it is a stand-in (tools/release-files.mjs: smaller than 1 KiB,
+//     or a .pkg that does not start like a PS4 or PS5 package);
 //   - its files, sorted into what the console can do with them: a disk image ShadowMount+ mounts
 //     (.exfat .ffpkg .ffpfs .ffpfsc), an app folder in a .zip (sce_sys/param.json and eboot.bin), a payload
 //     for the ELF loader (.elf .bin), a package (.pkg) or an archive holding one of those. PC, phone and
@@ -36,6 +38,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
+import { MIN_FILE, helpersLast, packageFormat, pickRelease } from './release-files.mjs';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
 const SOURCES = path.join(ROOT, 'sources.json');
@@ -49,8 +52,8 @@ const META_VERSION = 2;
 
 const sources = JSON.parse(fs.readFileSync(SOURCES, 'utf8'));
 const cache = fs.existsSync(CACHE) ? JSON.parse(fs.readFileSync(CACHE, 'utf8')) : {};
-for (const key of ['archives', 'images', 'repos']) cache[key] ??= {};
-const used = { archives: new Set(), images: new Set(), repos: new Set() };
+for (const key of ['archives', 'images', 'repos', 'packages']) cache[key] ??= {};
+const used = { archives: new Set(), images: new Set(), repos: new Set(), packages: new Set() };
 
 // GitHub's API, with the token when there is one. 404 is null; anything else not OK throws.
 async function api(route) {
@@ -206,11 +209,31 @@ function fileRank(file) {
   return score;
 }
 
+// A .pkg asset's format from its first four bytes ("ps4", "ps5", or null for something else), cached per
+// asset. Undefined when they could not be read: the file is kept then, rather than dropped over a hiccup.
+async function packageFormatOf(asset) {
+  const key = `${asset.id}:${asset.updated_at}`;
+  used.packages.add(key);
+  if (cache.packages[key] !== undefined) return cache.packages[key];
+  const head = await range(asset.browser_download_url, 0, 3);
+  if (!head) return undefined;
+  return (cache.packages[key] = packageFormat(head.bytes));
+}
+
+// A release's console files, best first, and a line for each one that only looked like one.
 async function filesOf(release) {
-  const files = [];
+  const files = [], refused = [];
   for (const asset of release.assets || []) {
     let kind = kindByName(asset.name);
     if (!kind) continue;
+    if (asset.size < MIN_FILE) {
+      refused.push(`${asset.name} is ${asset.size} bytes`);
+      continue;
+    }
+    if (kind === 'pkg' && (await packageFormatOf(asset)) === null) {
+      refused.push(`${asset.name} is not a package`);
+      continue;
+    }
     const file = { name: asset.name, kind, size: asset.size, url: asset.browser_download_url, downloads: asset.download_count };
     if (kind === 'archive') {
       const key = `${asset.id}:${asset.updated_at}`;
@@ -226,7 +249,7 @@ async function filesOf(release) {
     }
     files.push(file);
   }
-  return files.sort((a, b) => fileRank(b) - fileRank(a));
+  return { files: files.sort((a, b) => fileRank(b) - fileRank(a)), refused };
 }
 
 // ---- Art -----------------------------------------------------------------------------------------------
@@ -420,15 +443,17 @@ async function build(source) {
   if (!repo) return { skip: 'repository not found' };
   const full = repo.full_name;
   if (excluded.has(lower(full))) return { skip: 'excluded' };
-  const releases = (await api(`/repos/${full}/releases?per_page=6`)) || [];
-  const release = releases.find((r) => !r.draft);
-  if (!release) return { skip: 'no release' };
-  const files = await filesOf(release);
-  if (source.files) {
-    const keep = new RegExp(source.files, 'i');
-    files.splice(0, files.length, ...files.filter((f) => keep.test(f.name)));
-  }
-  if (!files.length) return { skip: `release ${release.tag_name} has nothing the PS5 runs` };
+  const releases = ((await api(`/repos/${full}/releases?per_page=6`)) || []).filter((r) => !r.draft);
+  if (!releases.length) return { skip: 'no release' };
+  const keep = source.files ? new RegExp(source.files, 'i') : null;
+  const picked = await pickRelease(releases, async (candidate) => {
+    const { files, refused } = await filesOf(candidate);
+    return { files: keep ? files.filter((f) => keep.test(f.name)) : files, refused };
+  });
+  if (picked.passedOver.length) passedOver.push(`${full}: ${picked.passedOver.join('; ')}${picked.release ? `; listed ${picked.release.tag_name}` : ''}`);
+  if (!picked.release) return { skip: `release ${releases[0].tag_name} has nothing the PS5 runs` };
+  const release = picked.release;
+  const files = helpersLast(picked.files, source.with);
 
   // README and tree, read again only when the repository changed.
   const key = full.toLowerCase();
@@ -547,7 +572,7 @@ async function build(source) {
 
 // ---- Run -----------------------------------------------------------------------------------------------
 
-const apps = [], skipped = [];
+const apps = [], skipped = [], passedOver = [];
 const queue = listed.map((source, index) => ({ source, index }));
 const results = new Array(queue.length);
 await Promise.all(Array.from({ length: PARALLEL }, async () => {
@@ -574,7 +599,7 @@ results.forEach((result, index) => {
 });
 
 // Prune the cache to what this run used, so it never grows without bound.
-for (const key of ['archives', 'images', 'repos']) for (const k of Object.keys(cache[key])) if (!used[key].has(k)) delete cache[key][k];
+for (const key of ['archives', 'images', 'repos', 'packages']) for (const k of Object.keys(cache[key])) if (!used[key].has(k)) delete cache[key][k];
 fs.writeFileSync(CACHE, `${JSON.stringify(cache)}\n`);
 
 // The time it was built changes only with what it lists, so a daily run that finds nothing new changes nothing.
@@ -597,4 +622,5 @@ const index = {
 const body = `${JSON.stringify(index)}\n`;
 for (const file of OUTPUTS) fs.writeFileSync(file, body);
 console.log(`${apps.length} apps (${(body.length / 1024).toFixed(0)} KiB), ${apps.filter((a) => a.icon && !a.iconFromAvatar).length} with their own icon, ${apps.filter((a) => a.logo).length} with a logo, ${apps.filter((a) => a.iconFromAvatar).length} with the owner's avatar, ${apps.filter((a) => !a.icon).length} without, ${apps.filter((a) => a.hero).length} with a wide picture`);
+if (passedOver.length) console.log(`releases passed over for stand-in files:\n  ${passedOver.join('\n  ')}`);
 if (skipped.length) console.log(`left out:\n  ${skipped.join('\n  ')}`);
