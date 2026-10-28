@@ -55,3 +55,15 @@ test('helpers never lead: the package installs, its agent payload comes with it'
   const many = [{ name: 'app.zip' }, { name: 'helper.elf' }, { name: 'other.elf' }];
   assert.deepEqual(helpersLast(many, ['helper.elf']).map((f) => f.name), ['app.zip', 'other.elf', 'helper.elf'], 'otherwise in rank order');
 });
+
+test('archives built for a computer stay out: by name, or by a Mac app inside (Orbit Zero, 2026-10-27)', async () => {
+  const { PC_ARCHIVE, desktopBundle } = await import('../tools/release-files.mjs');
+  // Orbit Store 1.6.0's computer builds: the Mac x64 zip was listed as a PS5 payload, and every install failed.
+  for (const name of ['Orbit-Zero-1.6.0-mac-x64.zip', 'Orbit-Zero-1.6.0-mac-arm64.zip', 'Orbit-Zero-1.6.0-win-x64.zip',
+    'Orbit-Zero-1.6.0-win-arm64.zip', 'Orbit-Zero-1.6.0-linux-x64.tar.gz', 'orbit-store-1.6.0-source-bundle.zip'])
+    assert.ok(PC_ARCHIVE.test(name), name);
+  for (const name of ['PS5-RetroArch.zip', 'ps5sx2-v1.2.zip', 'Emulator_Pack.7z', 'machine-learning-demo.zip', 'winamp-skin-viewer.zip', 'prospero-win-v0.2.0.zip'])
+    assert.ok(!PC_ARCHIVE.test(name), name);
+  assert.ok(desktopBundle(['Orbit Zero.app/Contents/Info.plist', 'Orbit Zero.app/Contents/Resources/orbit/orbit_store.elf']));
+  assert.ok(!desktopBundle(['payload/orbit_store.elf', 'readme.txt', 'Apps/app.json']));
+});

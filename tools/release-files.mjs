@@ -34,3 +34,12 @@ export async function pickRelease(releases, filesOf) {
 export function helpersLast(files, helpers = []) {
   return [...files].sort((a, b) => Number(helpers.includes(a.name)) - Number(helpers.includes(b.name)));
 }
+
+// An archive built for a computer or a phone, or the project's source code, by its name. "mac" and "x64" came in
+// when Orbit Store's Orbit-Zero-1.6.0-mac-x64.zip (its Mac app) was listed as a PS5 payload: every install of it
+// failed, the console's extractor refusing the links a Mac app holds.
+export const PC_ARCHIVE = /(^|[-_. ])(windows|win32|win64|win-x64|x64|x86[-_]64|amd64|arm64|aarch64|mac|macos|osx|darwin|linux|ubuntu|android|ios|source|sources|src|symbols|desktop|portable|frontend-|host-|keys)([-_. ]|$)|redump/i;
+
+// An archive holding a Mac app bundle is a computer's, whatever its name: the payload inside one (Orbit Zero
+// carries orbit_store.elf to send it) is the same file the release ships on its own.
+export const desktopBundle = (paths) => paths.some((p) => /(^|\/)[^/]+\.app\/Contents\//i.test(p));

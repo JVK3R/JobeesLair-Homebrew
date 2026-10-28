@@ -38,7 +38,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
-import { MIN_FILE, helpersLast, packageFormat, pickRelease } from './release-files.mjs';
+import { MIN_FILE, PC_ARCHIVE, desktopBundle, helpersLast, packageFormat, pickRelease } from './release-files.mjs';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
 const SOURCES = path.join(ROOT, 'sources.json');
@@ -95,8 +95,7 @@ const IMAGE = /\.(exfat|ffpkg|ffpfs|ffpfsc)$/i;
 const ARCHIVE = /\.(zip|7z|rar|tar\.gz|tgz|tar\.xz|tar\.bz2)$/i;
 // Not for the console: checksums, notes, art, PC and phone installers, libraries, other consoles' files.
 const NOT_CONSOLE = /\.(sha\d*|md5|sig|asc|txt|md|json|log|html?|png|jpe?g|webp|avif|gif|svg|mp4|ini|py|sh|pem|patch|a|prx|sprx|skprx|plugin|nro|apk|aab|ipa|exe|msi|dmg|deb|rpm|appimage|ipk|adb|gz\.sha256)$|\.pkg\.tar\.\w+$|^packages(\.\w+)?$/i;
-// An archive built for a computer or a phone, or the project's source code.
-const PC_ARCHIVE = /(^|[-_. ])(windows|win32|win64|win-x64|x86[-_]64|amd64|arm64|aarch64|macos|osx|darwin|linux|ubuntu|android|ios|source|sources|src|symbols|desktop|portable|frontend-|host-|keys)([-_. ]|$)|redump/i;
+// An archive built for a computer or a phone, or the project's source code: PC_ARCHIVE (release-files.mjs).
 const PS4 = /(^|[-_. ])ps4([-_. ]|$)/i;
 const NOT_PS5 = /esp32|\.pico\.|arduino/i;
 
@@ -177,6 +176,8 @@ async function otherNames(url, size, name) {
 // eboot.bin), a disk image, payloads or a package, by the paths inside it.
 function insideOf(names) {
   const paths = names.map(([p]) => p.replace(/\\/g, '/')).filter((p) => !p.endsWith('/') && !p.startsWith('__MACOSX/'));
+  // A Mac app inside: a computer's archive (desktopBundle, release-files.mjs).
+  if (desktopBundle(paths)) return null;
   const params = paths.filter((p) => /(^|\/)sce_sys\/param\.json$/i.test(p));
   for (const param of params) {
     const folder = param.replace(/sce_sys\/param\.json$/i, '');
