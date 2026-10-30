@@ -1018,7 +1018,9 @@
     },
     {
       "repo": "rdiol12/PS5Library",
-      "category": "stores"
+      "category": "stores",
+      "note": "Needs its agent payload. Once PS5Library is on the home screen, press Run helper, then start it. Run the helper again after every console restart.",
+      "with": ["ps5library-agent.elf"]
     },
     {
       "repo": "romanocry/EmuStore-PS5",
