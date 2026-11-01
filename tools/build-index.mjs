@@ -409,6 +409,26 @@ const ms = (iso) => (iso ? Date.parse(iso) : null);
 
 const lower = (repo) => repo.toLowerCase();
 const excluded = new Set((sources.exclude || []).map(lower));
+// A category the PS5 Repository List adds or renames after sources.json's mapping was written goes by the words in
+// its name instead of being left out, so nexgen999 can change his categories without his new projects going
+// missing here (asked 2026-11-01). PC tools and "shop" lists stay out, as the mapping has them; anything else unknown
+// is System, where the app also puts a category it doesn't know.
+const GUESSES = [
+  [/(^|[-_ ])pc([-_ ]|$)|windows|desktop|freeshop|shop/i, null],
+  [/emul/i, 'emulators'],
+  [/linux/i, 'linux'],
+  [/dump|pkg|save|backup/i, 'dumps'],
+  [/video|audio|music|media|player/i, 'media'],
+  [/remote|stream|cloud/i, 'streaming'],
+  [/hen|kstuff|jailbreak|exploit|webkit|kernel|loader/i, 'jailbreak'],
+  [/file|ftp|server|explorer/i, 'files'],
+  [/pad|controller/i, 'controllers'],
+  [/theme|avatar|cheat|overlay|trainer|plugin|mod/i, 'mods'],
+  [/sdk|debug|dev/i, 'dev'],
+  [/store/i, 'stores'],
+  [/game/i, 'games'],
+];
+const guessCategory = (name) => (GUESSES.find(([words]) => words.test(name)) ?? [null, 'system'])[1];
 async function upstreamApps() {
   const upstream = sources.upstream;
   if (!upstream) return [];
@@ -421,13 +441,14 @@ async function upstreamApps() {
     const added = [];
     for (const entry of config.repos || []) {
       const match = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i.exec(entry.url || '');
-      const category = upstream.categories[names[entry.categoryId]];
+      const name = names[entry.categoryId] ?? '';
+      const category = name in upstream.categories ? upstream.categories[name] : guessCategory(name);
       if (!match || !category || ours.has(lower(match[1])) || excluded.has(lower(match[1]))) continue;
       ours.add(lower(match[1]));
       added.push({ repo: match[1], category, upstream: true });
     }
     const unmapped = [...new Set(Object.values(names))].filter((name) => !(name in upstream.categories));
-    if (unmapped.length) console.log(`${upstream.name}: categories with no mapping (left out): ${unmapped.join(', ')}`);
+    if (unmapped.length) console.log(`${upstream.name}: categories not in sources.json, placed by name: ${unmapped.map((name) => `${name} -> ${guessCategory(name) ?? 'left out'}`).join(', ')}`);
     console.log(`${upstream.name}: ${config.repos?.length ?? 0} repositories, ${added.length} not in sources.json`);
     return added;
   } catch (error) {
